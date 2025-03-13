@@ -1,0 +1,69 @@
+# configs/segmentation_config.yaml
+# Cấu hình cho mô hình phân đoạn (segmentation) bệnh xoài
+
+# Cấu hình dữ liệu
+data:
+  raw_dir: "data/raw"
+  processed_dir: "data/segmentation"
+  train_dir: "data/segmentation/train"
+  validation_dir: "data/segmentation/val"
+  test_dir: "data/segmentation/test"
+  img_size: [512, 512]
+  test_split: 0.15
+  validation_split: 0.15
+  use_augmentation: true
+
+# Cấu hình tăng cường dữ liệu
+augmentation:
+  horizontal_flip: true
+  vertical_flip: false
+  rotation: true
+  rotation_limit: 20
+  random_brightness_contrast: true
+  brightness_limit: 0.2
+  contrast_limit: 0.2
+  gaussian_blur: true
+  blur_limit: 7
+  gaussian_noise: true
+  noise_var_limit: [10.0, 50.0]
+  scale: true
+  scale_limit: 0.2
+  shift: true
+  shift_limit: 0.1
+  elastic: true
+  grid_distortion: true
+
+# Cấu hình mô hình
+model:
+  input_shape: [512, 512, 3]
+  num_classes: 6  # 5 loại bệnh + 1 background
+  save_dir: "models"
+  class_names: ["background", "da_cam", "da_ech", "dom_den", "than_thu", "rui_dut"]
+  class_mapping: {"background": 0, "DC": 1, "DE": 2, "DD": 3, "TT": 4, "RD": 5}
+  
+  # Cấu hình riêng cho mô hình segmentation
+  segmentation_model:
+    architecture: "unet"  # Lựa chọn: 'unet', 'fpn', 'pspnet', 'deeplabv3', 'linknet'
+    encoder: "resnet34"   # Encoder backbone: 'resnet34', 'resnet50', 'efficientnetb0', 'mobilenetv2'
+    encoder_weights: "imagenet"
+    activation: "softmax"
+
+# Cấu hình huấn luyện
+training:
+  batch_size: 8
+  epochs: 50
+  learning_rate: 0.0001
+  img_size: [512, 512]
+  use_augmentation: true
+  early_stopping_patience: 10
+  reduce_lr_patience: 5
+  use_tensorboard: true
+  class_weights: null  # Có thể thêm trọng số cho các lớp nếu dữ liệu không cân bằng
+  loss: "categorical_crossentropy"  # Hoặc "dice_loss", "focal_loss", "jaccard_loss"
+  optimizer: "adam"  # Các lựa chọn: "adam", "sgd", "rmsprop"
+
+# Cấu hình đánh giá
+evaluation:
+  batch_size: 8
+  save_dir: "evaluation_results/segmentation"
+  metrics: ["iou_score", "f1_score", "precision", "recall", "dice_coefficient"]
