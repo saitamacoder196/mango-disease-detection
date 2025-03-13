@@ -1,0 +1,63 @@
+# configs/transfer_learning_config.yaml
+# Cấu hình cho mô hình Transfer Learning
+
+# Cấu hình dữ liệu
+data:
+  raw_dir: "data/raw"
+  processed_dir: "data/processed"
+  augmented_dir: "data/augmented"
+  train_dir: "data/processed/train"
+  validation_dir: "data/processed/validation"
+  test_dir: "data/processed/test"
+  img_size: [224, 224]
+  test_split: 0.15
+  validation_split: 0.15
+  use_augmentation: true
+
+# Cấu hình tăng cường dữ liệu
+augmentation:
+  horizontal_flip: true
+  vertical_flip: false
+  rotation: true
+  rotation_limit: 20
+  random_brightness_contrast: true
+  brightness_limit: 0.2
+  contrast_limit: 0.2
+  gaussian_blur: true
+  blur_limit: 7
+  gaussian_noise: true
+  noise_var_limit: [10.0, 50.0]
+
+# Cấu hình mô hình
+model:
+  input_shape: [224, 224, 3]
+  num_classes: 4
+  save_dir: "models"
+  class_names: ["anthracnose", "bacterial_canker", "healthy", "powdery_mildew"]
+  
+  # Cấu hình riêng cho mô hình Transfer Learning
+  transfer_learning:
+    base_model: "mobilenetv2"  # Lựa chọn: 'vgg16', 'resnet50', 'mobilenetv2', 'efficientnet'
+    dense_units: [1024, 512]
+    dropout_rate: 0.5
+    trainable_base: false
+    use_batch_norm: true
+    fine_tuning_epochs: 20  # Số epoch fine-tuning sau khi huấn luyện ban đầu
+    fine_tuning_learning_rate: 0.00001  # Learning rate thấp hơn cho fine-tuning
+
+# Cấu hình huấn luyện
+training:
+  batch_size: 32
+  epochs: 30  # Epochs ít hơn cho transfer learning
+  learning_rate: 0.0001  # Learning rate thấp hơn cho transfer learning
+  img_size: [224, 224]
+  use_augmentation: true
+  early_stopping_patience: 10
+  reduce_lr_patience: 5
+  use_tensorboard: true
+  class_weights: null
+
+# Cấu hình đánh giá
+evaluation:
+  batch_size: 32
+  save_dir: "evaluation_results/transfer_learning"
