@@ -12,16 +12,45 @@ import numpy as np
 import cv2
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-def setup_directory_structure(base_dir):
+def setup_directory_structure(base_dir, clear_existing=True):
     """Thiết lập cấu trúc thư mục cho dữ liệu phân đoạn."""
     # Tạo thư mục chính
     os.makedirs(base_dir, exist_ok=True)
     
+    # Tạo thư mục raw (không xóa dữ liệu cũ)
+    os.makedirs(os.path.join(base_dir, 'raw'), exist_ok=True)
+    
+    # Cấu trúc thư mục cần tạo
+    directory_structure = [
+        'segmentation/images', 
+        'segmentation/masks', 
+        'segmentation/masks_colored',
+        'segmentation/masks_enhanced',
+        'segmentation/annotations',
+        'segmentation/train/images', 
+        'segmentation/train/masks',
+        'segmentation/train/masks_colored',
+        'segmentation/train/masks_enhanced',
+        'segmentation/val/images', 
+        'segmentation/val/masks',
+        'segmentation/val/masks_colored',
+        'segmentation/val/masks_enhanced',
+        'segmentation/test/images', 
+        'segmentation/test/masks',
+        'segmentation/test/masks_colored',
+        'segmentation/test/masks_enhanced'
+    ]
+    
+    # Nếu cần xóa dữ liệu cũ
+    if clear_existing:
+        for directory in directory_structure:
+            dir_path = os.path.join(base_dir, directory)
+            if os.path.exists(dir_path):
+                print(f"Xóa thư mục cũ: {dir_path}")
+                shutil.rmtree(dir_path)
+    
     # Tạo các thư mục con
-    for directory in ['raw', 'segmentation/images', 'segmentation/masks', 'segmentation/annotations',
-                      'segmentation/train/images', 'segmentation/train/masks',
-                      'segmentation/val/images', 'segmentation/val/masks',
-                      'segmentation/test/images', 'segmentation/test/masks']:
+    for directory in directory_structure:
         os.makedirs(os.path.join(base_dir, directory), exist_ok=True)
     
     print(f"Cấu trúc thư mục đã được tạo tại {base_dir}")
@@ -60,7 +89,7 @@ def match_image_annotation(image_files, json_files):
     # Tìm file json tương ứng với mỗi ảnh
     matched_pairs = []
     for json_path in json_files:
-        with open(json_path, 'r', encoding='utf-8') as f:
+        with open(json_path, 'r', encoding='utf-8', errors='ignore') as f:
             try:
                 json_data = json.load(f)
                 # Lấy tên file ảnh từ imagePath trong json
@@ -84,6 +113,8 @@ def match_image_annotation(image_files, json_files):
                         matched_pairs.append((image_dict[potential_matches[0]], json_path))
             except json.JSONDecodeError:
                 print(f"Lỗi khi đọc file {json_path}. Bỏ qua.")
+            except Exception as e:
+                print(f"Lỗi không xác định với file {json_path}: {e}")
     
     print(f"Đã ghép được {len(matched_pairs)} cặp ảnh và annotation.")
     return matched_pairs
@@ -91,7 +122,7 @@ def match_image_annotation(image_files, json_files):
 def process_json_to_mask(json_path, output_size=(512, 512), label_mapping=None):
     """Chuyển đổi file JSON annotation thành mask."""
     try:
-        with open(json_path, 'r', encoding='utf-8') as f:
+        with open(json_path, 'r', encoding='utf-8', errors='ignore') as f:
             data = json.load(f)
         
         # Lấy kích thước ảnh gốc
@@ -106,6 +137,10 @@ def process_json_to_mask(json_path, output_size=(512, 512), label_mapping=None):
             label = shape.get('label')
             points = shape.get('points')
             
+            # Bỏ qua nếu không có đủ điểm để tạo polygon
+            if not points or len(points) < 3:
+                continue
+                
             # Chuyển đổi label thành ID nếu có mapping
             label_id = label_mapping.get(label, 1) if label_mapping else 1
             
@@ -123,69 +158,24 @@ def process_json_to_mask(json_path, output_size=(512, 512), label_mapping=None):
     
     except Exception as e:
         print(f"Lỗi khi xử lý file {json_path}: {e}")
+        import traceback
+        traceback.print_exc()
         return None
 
-def copy_and_process_data(matched_pairs, output_dir, img_size=(512, 512), 
-                          val_split=0.15, test_split=0.15, label_mapping=None):
-    """Sao chép và xử lý dữ liệu sang thư mục đầu ra."""
-    print("Đang xử lý và sao chép dữ liệu...")
-    
-    # Chia dữ liệu thành train, val, test
-    random.shuffle(matched_pairs)
-    n_total = len(matched_pairs)
-    n_test = int(n_total * test_split)
-    n_val = int(n_total * val_split)
-    n_train = n_total - n_test - n_val
-    
-    train_pairs = matched_pairs[:n_train]
-    val_pairs = matched_pairs[n_train:n_train+n_val]
-    test_pairs = matched_pairs[n_train+n_val:]
-    
-    print(f"Chia dữ liệu: {n_train} train, {n_val} validation, {n_test} test")
-    
-    # Xử lý từng phần
-    process_subset(train_pairs, output_dir, 'train', img_size, label_mapping)
-    process_subset(val_pairs, output_dir, 'val', img_size, label_mapping)
-    process_subset(test_pairs, output_dir, 'test', img_size, label_mapping)
-    
-    # Lưu tất cả vào thư mục raw để tham khảo
-    raw_dir = os.path.join(output_dir, 'raw')
-    for img_path, json_path in tqdm(matched_pairs, desc="Sao chép raw data"):
-        # Sao chép file ảnh
-        img_name = os.path.basename(img_path)
-        shutil.copy2(img_path, os.path.join(raw_dir, img_name))
-        
-        # Sao chép file json
-        json_name = os.path.basename(json_path)
-        shutil.copy2(json_path, os.path.join(raw_dir, json_name))
-    
-    print("Hoàn thành xử lý dữ liệu!")
+def create_enhanced_mask(mask):
+    """Tạo mask tăng cường (nhân với 50)."""
+    return mask * 50
 
-def process_subset(pairs, output_dir, subset, img_size, label_mapping):
-    """Xử lý một tập con dữ liệu (train/val/test)."""
-    images_dir = os.path.join(output_dir, f'segmentation/{subset}/images')
-    masks_dir = os.path.join(output_dir, f'segmentation/{subset}/masks')
+def create_colored_mask(mask, colors):
+    """Tạo mask màu từ mask grayscale."""
+    colored_mask = np.zeros((mask.shape[0], mask.shape[1], 3), dtype=np.uint8)
     
-    # Xử lý song song để tăng tốc
-    with ThreadPoolExecutor(max_workers=os.cpu_count()) as executor:
-        futures = []
-        for img_path, json_path in pairs:
-            future = executor.submit(
-                process_single_pair, 
-                img_path, 
-                json_path, 
-                images_dir, 
-                masks_dir, 
-                img_size, 
-                label_mapping
-            )
-            futures.append(future)
-        
-        # Hiển thị tiến trình
-        for _ in tqdm(as_completed(futures), total=len(futures), desc=f"Xử lý {subset}"):
-            pass
+    for class_idx, color in enumerate(colors):
+        colored_mask[mask == class_idx] = color
+    
+    return colored_mask
 
-def process_single_pair(img_path, json_path, images_dir, masks_dir, img_size, label_mapping):
+def process_single_pair(img_path, json_path, base_output_dir, subset, img_size, label_mapping, colors):
     """Xử lý một cặp file ảnh và annotation."""
     try:
         # Lấy tên file gốc
@@ -206,12 +196,91 @@ def process_single_pair(img_path, json_path, images_dir, masks_dir, img_size, la
             print(f"Không thể tạo mask từ {json_path}")
             return
         
+        # Tạo mask tăng cường
+        enhanced_mask = create_enhanced_mask(mask)
+        
+        # Tạo mask màu
+        colored_mask = create_colored_mask(mask, colors)
+        
+        # Đường dẫn thư mục đầu ra
+        if subset:
+            # Lưu trong thư mục train/val/test
+            images_dir = os.path.join(base_output_dir, f'segmentation/{subset}/images')
+            masks_dir = os.path.join(base_output_dir, f'segmentation/{subset}/masks')
+            masks_enhanced_dir = os.path.join(base_output_dir, f'segmentation/{subset}/masks_enhanced')
+            masks_colored_dir = os.path.join(base_output_dir, f'segmentation/{subset}/masks_colored')
+        else:
+            # Lưu trong thư mục gốc
+            images_dir = os.path.join(base_output_dir, 'segmentation/images')
+            masks_dir = os.path.join(base_output_dir, 'segmentation/masks')
+            masks_enhanced_dir = os.path.join(base_output_dir, 'segmentation/masks_enhanced')
+            masks_colored_dir = os.path.join(base_output_dir, 'segmentation/masks_colored')
+        
         # Lưu ảnh và mask
         cv2.imwrite(os.path.join(images_dir, f"{base_name}.jpg"), img_resized)
         cv2.imwrite(os.path.join(masks_dir, f"{base_name}.png"), mask)
+        cv2.imwrite(os.path.join(masks_enhanced_dir, f"{base_name}.png"), enhanced_mask)
+        cv2.imwrite(os.path.join(masks_colored_dir, f"{base_name}.png"), colored_mask)
         
     except Exception as e:
         print(f"Lỗi khi xử lý {img_path}: {e}")
+        import traceback
+        traceback.print_exc()
+
+def copy_and_process_data(matched_pairs, output_dir, img_size=(512, 512), 
+                         val_split=0.15, test_split=0.15, label_mapping=None, colors=None):
+    """Sao chép và xử lý dữ liệu sang thư mục đầu ra."""
+    print("Đang xử lý và sao chép dữ liệu...")
+    
+    # Nếu không cung cấp colors, dùng giá trị mặc định
+    if colors is None:
+        colors = [
+            [0, 0, 0],        # Background - đen
+            [0, 0, 255],      # DC - đỏ (BGR)
+            [0, 255, 0],      # DE - xanh lá
+            [255, 0, 0],      # DD - xanh dương
+            [0, 255, 255],    # TT - vàng
+            [255, 0, 255]     # RD - tím
+        ]
+    
+    # Chia dữ liệu thành train, val, test
+    random.shuffle(matched_pairs)
+    n_total = len(matched_pairs)
+    n_test = int(n_total * test_split)
+    n_val = int(n_total * val_split)
+    n_train = n_total - n_test - n_val
+    
+    train_pairs = matched_pairs[:n_train]
+    val_pairs = matched_pairs[n_train:n_train+n_val]
+    test_pairs = matched_pairs[n_train+n_val:]
+    
+    print(f"Chia dữ liệu: {n_train} train, {n_val} validation, {n_test} test")
+    
+    # Xử lý từng phần
+    process_subset(train_pairs, output_dir, 'train', img_size, label_mapping, colors)
+    process_subset(val_pairs, output_dir, 'val', img_size, label_mapping, colors)
+    process_subset(test_pairs, output_dir, 'test', img_size, label_mapping, colors)
+    
+    # Lưu tất cả vào thư mục raw để tham khảo
+    raw_dir = os.path.join(output_dir, 'raw')
+    for img_path, json_path in tqdm(matched_pairs, desc="Sao chép raw data"):
+        # Sao chép file ảnh
+        img_name = os.path.basename(img_path)
+        shutil.copy2(img_path, os.path.join(raw_dir, img_name))
+        
+        # Sao chép file json
+        json_name = os.path.basename(json_path)
+        shutil.copy2(json_path, os.path.join(raw_dir, json_name))
+    
+    print("Hoàn thành xử lý dữ liệu!")
+
+def process_subset(pairs, output_dir, subset, img_size, label_mapping, colors):
+    """Xử lý một tập con dữ liệu (train/val/test)."""
+    print(f"Đang xử lý tập {subset}...")
+    
+    # Xử lý từng cặp ảnh và annotation
+    for img_path, json_path in tqdm(pairs, desc=f"Xử lý {subset}"):
+        process_single_pair(img_path, json_path, output_dir, subset, img_size, label_mapping, colors)
 
 def main():
     parser = argparse.ArgumentParser(description='Chuẩn bị dữ liệu phân đoạn xoài')
@@ -220,6 +289,7 @@ def main():
     parser.add_argument('--img_size', type=int, nargs=2, default=[512, 512], help='Kích thước ảnh output (width, height)')
     parser.add_argument('--val_split', type=float, default=0.15, help='Tỷ lệ chia cho validation')
     parser.add_argument('--test_split', type=float, default=0.15, help='Tỷ lệ chia cho test')
+    parser.add_argument('--clear_existing', action='store_true', help='Xóa dữ liệu cũ trước khi xử lý')
     
     args = parser.parse_args()
     
@@ -232,8 +302,18 @@ def main():
         "RD": 5,  # Rùi đụt
     }
     
-    # Thiết lập cấu trúc thư mục
-    setup_directory_structure(args.output_dir)
+    # Màu sắc cho các lớp bệnh (BGR)
+    colors = [
+        [0, 0, 0],        # Background - đen
+        [0, 0, 255],      # DC - đỏ
+        [0, 255, 0],      # DE - xanh lá
+        [255, 0, 0],      # DD - xanh dương
+        [0, 255, 255],    # TT - vàng
+        [255, 0, 255]     # RD - tím
+    ]
+    
+    # Thiết lập cấu trúc thư mục và xóa dữ liệu cũ nếu được yêu cầu
+    setup_directory_structure(args.output_dir, clear_existing=args.clear_existing)
     
     # Thu thập và ghép cặp file
     image_files, json_files = collect_data_files(args.input_dir)
@@ -246,11 +326,22 @@ def main():
         img_size=tuple(args.img_size), 
         val_split=args.val_split, 
         test_split=args.test_split,
-        label_mapping=label_mapping
+        label_mapping=label_mapping,
+        colors=colors
     )
     
     print("Hoàn thành chuẩn bị dữ liệu!")
     print(f"Dữ liệu đã được lưu trong thư mục {args.output_dir}")
+    print("\nCấu trúc thư mục dữ liệu:")
+    print(f"- {args.output_dir}/segmentation/train/: Dữ liệu huấn luyện")
+    print(f"- {args.output_dir}/segmentation/val/: Dữ liệu validation")
+    print(f"- {args.output_dir}/segmentation/test/: Dữ liệu kiểm thử")
+    print(f"- {args.output_dir}/raw/: Dữ liệu gốc (ảnh và JSON)")
+    print(f"Mỗi tập dữ liệu bao gồm:")
+    print(f"  - images/: Ảnh gốc")
+    print(f"  - masks/: Mask nhị phân")
+    print(f"  - masks_enhanced/: Mask tăng cường (nhân với 50)")
+    print(f"  - masks_colored/: Mask màu")
 
 if __name__ == "__main__":
     main()

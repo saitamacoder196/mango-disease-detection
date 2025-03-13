@@ -75,3 +75,73 @@ def preprocess_dataset(input_dir, output_dir, img_size=(224, 224), test_split=0.
                 cv2.imwrite(output_path, cv2.cvtColor(processed_image * 255, cv2.COLOR_RGB2BGR))
     
     print(f"Preprocessing complete. Data saved to {output_dir}")
+    
+def process_json_to_mask(json_path, output_size=(512, 512), label_mapping=None):
+    """Chuyển đổi file JSON annotation thành mask."""
+    try:
+        with open(json_path, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+        
+        # Lấy kích thước ảnh gốc
+        img_height = data.get('imageHeight', output_size[0])
+        img_width = data.get('imageWidth', output_size[1])
+        
+        print(f"Processing JSON: {json_path}")
+        print(f"Original size: {img_width}x{img_height}")
+        
+        # Tạo mask trống
+        mask = np.zeros((img_height, img_width), dtype=np.uint8)
+        
+        # Vẽ các đa giác lên mask
+        for shape in data.get('shapes', []):
+            label = shape.get('label')
+            points = shape.get('points')
+            
+            print(f"  Shape label: {label}, points: {len(points)}")
+            
+            # Chuyển đổi label thành ID nếu có mapping
+            label_id = label_mapping.get(label, 1) if label_mapping else 1
+            print(f"  Mapped to ID: {label_id}")
+            
+            # Kiểm tra points
+            if len(points) < 3:
+                print(f"  Warning: Not enough points ({len(points)}) for polygon")
+                continue
+                
+            # Chuyển đổi points thành định dạng phù hợp cho cv2.fillPoly
+            points_array = np.array(points, dtype=np.int32)
+            
+            # Vẽ polygon
+            cv2.fillPoly(mask, [points_array], label_id)
+            
+            # Kiểm tra xem polygon có được vẽ không
+            pixel_count = np.sum(mask == label_id)
+            print(f"  Filled pixels: {pixel_count}")
+            
+            if pixel_count == 0:
+                print(f"  Warning: No pixels set for label {label}")
+                print(f"  Points sample: {points[:3]}")
+        
+        # Lưu mask gốc để kiểm tra (chỉ khi debug)
+        debug_dir = "debug_masks"
+        os.makedirs(debug_dir, exist_ok=True)
+        debug_path = os.path.join(debug_dir, os.path.basename(json_path) + ".png")
+        cv2.imwrite(debug_path, mask * 50)  # Nhân với 50 để dễ nhìn thấy
+        print(f"  Saved debug mask to: {debug_path}")
+        
+        # Resize mask về kích thước mong muốn
+        if output_size and (img_height != output_size[0] or img_width != output_size[1]):
+            mask = cv2.resize(mask, output_size, interpolation=cv2.INTER_NEAREST)
+            
+            # Lưu mask sau resize để kiểm tra
+            resized_debug_path = os.path.join(debug_dir, f"resized_{os.path.basename(json_path)}.png")
+            cv2.imwrite(resized_debug_path, mask * 50)
+            print(f"  Saved resized mask to: {resized_debug_path}")
+        
+        return mask
+    
+    except Exception as e:
+        print(f"Lỗi khi xử lý file {json_path}: {e}")
+        import traceback
+        traceback.print_exc()
+        return None
