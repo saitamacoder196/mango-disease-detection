@@ -2,13 +2,25 @@
 # Bộ nạp dữ liệu cho mô hình phân đoạn
 
 import os
+import sys
 import numpy as np
 import tensorflow as tf
+# Thêm đường dẫn tạm thời cho cv2
+cv2_path = None
+for path in sys.path:
+    if os.path.exists(os.path.join(path, 'cv2', '__init__.py')):
+        cv2_path = path
+        break
+
+if cv2_path:
+    sys.path.remove(cv2_path)
+    sys.path.append(cv2_path)
+
 import cv2
 from tensorflow.keras.utils import to_categorical
 from albumentations import (
     Compose, HorizontalFlip, VerticalFlip, Rotate, ShiftScaleRotate,
-    RandomBrightnessContrast, GaussianBlur, GaussianNoise,
+    RandomBrightnessContrast, GaussianBlur,
     ElasticTransform, GridDistortion, OneOf
 )
 
@@ -88,11 +100,13 @@ class SegmentationDataLoader:
                 p=0.3
             ))
         
-        if self.augmentation_config.get('gaussian_noise', True):
-            aug_list.append(GaussianNoise(
-                var_limit=self.augmentation_config.get('noise_var_limit', (10.0, 50.0)),
-                p=0.3
-            ))
+        # if self.augmentation_config.get('gaussian_noise', True):
+        #     aug_list.append(GaussianNoise(
+        #         var_limit=self.augmentation_config.get('noise_var_limit', (10.0, 50.0)),
+        #         p=0.3
+        #     ))
+
+
         
         if self.augmentation_config.get('shift', True) or self.augmentation_config.get('scale', True):
             aug_list.append(ShiftScaleRotate(
@@ -189,13 +203,16 @@ class SegmentationDataLoader:
             for i in range(len(self)):
                 yield self[i]
         
+        # Phiên bản tương thích với TensorFlow cũ hơn
         return tf.data.Dataset.from_generator(
             generator,
-            output_signature=(
-                tf.TensorSpec(shape=(None, *self.img_size, 3), dtype=tf.float32),
-                tf.TensorSpec(shape=(None, *self.img_size, self.num_classes), dtype=tf.float32)
+            output_types=(tf.float32, tf.float32),
+            output_shapes=(
+                (None, self.img_size[0], self.img_size[1], 3),
+                (None, self.img_size[0], self.img_size[1], self.num_classes)
             )
         )
+
 
 def create_segmentation_datasets(train_dir, validation_dir, test_dir=None, img_size=(512, 512), 
                                batch_size=8, num_classes=6, augmentation=True, augmentation_config=None):

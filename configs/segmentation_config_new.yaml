@@ -1,0 +1,46 @@
+data:
+  train_dir: "data/segmentation/train"
+  validation_dir: "data/segmentation/val"
+  test_dir: "data/segmentation/test"
+  img_size: [512, 512]
+  use_augmentation: true
+
+model:
+  input_shape: [512, 512, 3]
+  num_classes: 6
+  save_dir: "models"
+  class_names: ["background", "da_cam", "da_ech", "dom_den", "than_thu", "rui_dut"]
+  segmentation_model:
+    architecture: "unet"
+    encoder: "resnet34"
+    encoder_weights: "imagenet"
+    activation: "softmax"
+
+training:
+  batch_size: 8
+  epochs: 50
+  learning_rate: 0.0001
+  early_stopping_patience: 10
+  reduce_lr_patience: 5
+  use_augmentation: true 
+  loss: "categorical_crossentropy"
+  optimizer: "adam"
+
+augmentation:
+  horizontal_flip: true
+  vertical_flip: false
+  rotation: true
+  rotation_limit: 20
+  random_brightness_contrast: true
+  brightness_limit: 0.2
+  contrast_limit: 0.2
+  gaussian_blur: true
+  blur_limit: 7
+  gaussian_noise: true
+  noise_var_limit: [10.0, 50.0]
+  scale: true
+  scale_limit: 0.2
+  shift: true
+  shift_limit: 0.1
+  elastic: true
+  grid_distortion: true

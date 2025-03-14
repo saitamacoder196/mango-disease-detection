@@ -6,11 +6,9 @@ import os
 import yaml
 import tensorflow as tf
 from src.data.segmentation_dataloader import create_segmentation_datasets
-from src.models.segmentation_model import (
-    build_segmentation_model, 
-    get_segmentation_metrics, 
-    get_segmentation_loss
-)
+from src.models.direct_unet import build_simple_unet, compile_unet, get_simple_metrics
+
+
 from tensorflow.keras.callbacks import (
     ModelCheckpoint, 
     EarlyStopping,
@@ -54,14 +52,11 @@ def train_segmentation_model(config_path):
     )
     
     # Xây dựng mô hình
-    model = build_segmentation_model(
+    model = build_simple_unet(
         input_shape=tuple(model_config['input_shape']),
-        num_classes=model_config['num_classes'],
-        architecture=segmentation_config['architecture'],
-        encoder=segmentation_config['encoder'],
-        encoder_weights=segmentation_config['encoder_weights'],
-        activation=segmentation_config['activation']
+        num_classes=model_config['num_classes']
     )
+
     
     # Chọn optimizer
     if training_config['optimizer'].lower() == 'adam':
