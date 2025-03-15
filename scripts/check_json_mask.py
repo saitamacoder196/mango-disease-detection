@@ -99,11 +99,34 @@ def create_mask_from_json(json_path, output_dir):
     
     return mask
 
-# Tạo thư mục đầu ra
-output_dir = 'debug_output'  # Có thể thay đổi thành thư mục khác
-os.makedirs(output_dir, exist_ok=True)
+def check_mask_distribution(mask_dir):
+    """Kiểm tra phân phối lớp trong các file mask."""
+    mask_files = glob.glob(os.path.join(mask_dir, "*.png"))
+    class_counts = {i: 0 for i in range(6)}  # Lớp 0-5
+    total_pixels = 0
+    
+    for mask_path in mask_files:
+        mask = cv2.imread(mask_path, cv2.IMREAD_GRAYSCALE)
+        if mask is None:
+            continue
+        
+        total_pixels += mask.size
+        for class_idx in range(6):
+            class_counts[class_idx] += np.sum(mask == class_idx)
+    
+    print("Phân phối lớp trong mask:")
+    for class_idx, count in class_counts.items():
+        percentage = (count / total_pixels) * 100 if total_pixels > 0 else 0
+        print(f"Lớp {class_idx} ({CLASS_NAMES[class_idx]}): {percentage:.2f}%")
 
-# Tạo mask
-mask = create_mask_from_json(json_path, output_dir)
+# Gọi hàm để kiểm tra
+check_mask_distribution('data/segmentation/train/masks')
 
-print("Hoàn thành!")
+# # Tạo thư mục đầu ra
+# output_dir = 'debug_output'  # Có thể thay đổi thành thư mục khác
+# os.makedirs(output_dir, exist_ok=True)
+
+# # Tạo mask
+# mask = create_mask_from_json(json_path, output_dir)
+
+# print("Hoàn thành!")

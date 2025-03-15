@@ -25,6 +25,7 @@ training:
   use_augmentation: true 
   loss: "categorical_crossentropy"
   optimizer: "adam"
+  class_weights: [0.01, 10.0, 20.0, 10.0, 15.0, 20.0]
 
 augmentation:
   horizontal_flip: true
