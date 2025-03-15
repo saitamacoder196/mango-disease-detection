@@ -1,0 +1,14 @@
+Kết quả đánh giá trung bình:
+Mean IoU: 0.9982
+Mean Dice: 0.9991
+Pixel Accuracy: 0.9982
+
+Kết quả đánh giá cho từng lớp:
+Lớp             IoU        Dice      
+-----------------------------------
+background      0.9982       0.9991
+da_cam          0.0000       0.0000
+da_ech          0.0000       0.0000
+dom_den         0.0000       0.0000
+than_thu        0.0000       0.0000
+rui_dut         0.0000       0.0000

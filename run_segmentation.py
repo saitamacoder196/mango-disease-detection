@@ -32,6 +32,10 @@ def create_colored_mask(mask):
         colored_mask[mask == class_idx] = color
     return colored_mask
 
+def create_enhanced_mask(mask):
+    """Tạo mask tăng cường (nhân với 50)."""
+    return mask * 50
+
 def load_config(config_path):
     """Đọc file cấu hình."""
     with open(config_path, 'r') as f:
@@ -42,17 +46,40 @@ def load_segmentation_model(model_path):
     """Tải mô hình phân đoạn."""
     print(f"Đang tải mô hình từ {model_path}...")
     try:
+        # Định nghĩa metrics tương thích
+        def iou_score(y_true, y_pred, threshold=0.5, smooth=1e-5):
+            y_true_f = tf.keras.backend.flatten(y_true)
+            y_pred_f = tf.keras.backend.flatten(y_pred)
+            pred_positive = tf.keras.backend.cast(tf.keras.backend.greater_equal(y_pred_f, threshold), 'float32')
+            intersection = tf.keras.backend.sum(y_true_f * pred_positive)
+            union = tf.keras.backend.sum(y_true_f) + tf.keras.backend.sum(pred_positive) - intersection
+            return (intersection + smooth) / (union + smooth)
+        
+        def f1_score(y_true, y_pred, threshold=0.5, smooth=1e-5):
+            y_true_f = tf.keras.backend.flatten(y_true)
+            y_pred_f = tf.keras.backend.flatten(y_pred)
+            pred_positive = tf.keras.backend.cast(tf.keras.backend.greater_equal(y_pred_f, threshold), 'float32')
+            true_positive = tf.keras.backend.sum(y_true_f * pred_positive)
+            precision = true_positive / (tf.keras.backend.sum(pred_positive) + smooth)
+            recall = true_positive / (tf.keras.backend.sum(y_true_f) + smooth)
+            return 2 * precision * recall / (precision + recall + smooth)
+        
         model = load_model(
             model_path,
             custom_objects={
-                'iou_score': sm.metrics.IOUScore(threshold=0.5),
-                'f1-score': sm.metrics.FScore(threshold=0.5)
+                'iou_score': iou_score,
+                'f1_score': f1_score,
+                'f1-score': f1_score,
+                'iou-score': iou_score,
+                'IOUScore': iou_score
             }
         )
         print("Đã tải mô hình thành công")
         return model
     except Exception as e:
         print(f"Lỗi khi tải mô hình: {e}")
+        import traceback
+        traceback.print_exc()
         sys.exit(1)
 
 def predict_segmentation(model, image_path, img_size=(512, 512)):
@@ -68,6 +95,7 @@ def predict_segmentation(model, image_path, img_size=(512, 512)):
         img_resized: Ảnh gốc đã resize
         pred_mask: Mask dự đoán
         colored_mask: Mask màu
+        enhanced_mask: Mask tăng cường
         overlay_img: Ảnh overlay
         class_areas: Phần trăm diện tích từng loại bệnh
     """
@@ -92,6 +120,9 @@ def predict_segmentation(model, image_path, img_size=(512, 512)):
     # Tạo mask màu
     colored_mask = create_colored_mask(pred_mask)
     
+    # Tạo mask tăng cường
+    enhanced_mask = create_enhanced_mask(pred_mask)
+    
     # Tạo overlay
     alpha = 0.6
     overlay_img = cv2.addWeighted(img_resized, 1-alpha, colored_mask, alpha, 0)
@@ -105,7 +136,7 @@ def predict_segmentation(model, image_path, img_size=(512, 512)):
         percentage = (pixel_count / total_pixels) * 100
         class_areas[class_name] = percentage
     
-    return img_resized, pred_mask, colored_mask, overlay_img, class_areas
+    return img_resized, pred_mask, colored_mask, enhanced_mask, overlay_img, class_areas
 
 def evaluate_on_test_set(model, test_dir, mask_dir, img_size=(512, 512), num_classes=6):
     """
@@ -205,31 +236,37 @@ def evaluate_on_test_set(model, test_dir, mask_dir, img_size=(512, 512), num_cla
     
     return metrics_per_class, avg_metrics
 
-def display_results(img, pred_mask, colored_mask, overlay, class_areas, output_dir=None, filename=None):
+def display_results(img, pred_mask, colored_mask, enhanced_mask, overlay, class_areas, output_dir=None, filename=None):
     """Hiển thị và lưu kết quả phân đoạn."""
     # Hiển thị kết quả
     plt.figure(figsize=(15, 10))
     
     # Ảnh gốc
-    plt.subplot(2, 2, 1)
+    plt.subplot(2, 3, 1)
     plt.imshow(img)
     plt.title("Ảnh gốc")
     plt.axis('off')
     
     # Mask dự đoán
-    plt.subplot(2, 2, 2)
+    plt.subplot(2, 3, 2)
     plt.imshow(colored_mask)
     plt.title("Mask phân đoạn")
     plt.axis('off')
     
+    # Mask tăng cường
+    plt.subplot(2, 3, 3)
+    plt.imshow(enhanced_mask, cmap='gray')
+    plt.title("Mask tăng cường")
+    plt.axis('off')
+    
     # Overlay
-    plt.subplot(2, 2, 3)
+    plt.subplot(2, 3, 4)
     plt.imshow(overlay)
     plt.title("Overlay")
     plt.axis('off')
     
     # Phần trăm diện tích
-    plt.subplot(2, 2, 4)
+    plt.subplot(2, 3, 5)
     plt.axis('off')
     plt.title("Phần trăm diện tích")
     
@@ -283,7 +320,7 @@ def save_results_to_csv(results, output_dir, filename="segmentation_results.csv"
     os.makedirs(output_dir, exist_ok=True)
     output_path = os.path.join(output_dir, filename)
     
-    with open(output_path, 'w', newline='') as csvfile:
+    with open(output_path, 'w', newline='', encoding='utf-8') as csvfile:
         fieldnames = ['image', 'class', 'percentage']
         writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
         
@@ -314,6 +351,8 @@ def batch_process_images(model, input_dir, output_dir, img_size=(512, 512)):
     # Tạo thư mục đầu ra
     os.makedirs(output_dir, exist_ok=True)
     os.makedirs(os.path.join(output_dir, "masks"), exist_ok=True)
+    os.makedirs(os.path.join(output_dir, "colored"), exist_ok=True)
+    os.makedirs(os.path.join(output_dir, "enhanced"), exist_ok=True)
     os.makedirs(os.path.join(output_dir, "overlays"), exist_ok=True)
     
     # Lưu kết quả
@@ -326,15 +365,26 @@ def batch_process_images(model, input_dir, output_dir, img_size=(512, 512)):
             print(f"Đang xử lý {filename}...")
             
             # Dự đoán
-            img, pred_mask, colored_mask, overlay, class_areas = predict_segmentation(
+            img, pred_mask, colored_mask, enhanced_mask, overlay, class_areas = predict_segmentation(
                 model, image_path, img_size=img_size
             )
             
             # Lưu ảnh kết quả
             mask_path = os.path.join(output_dir, "masks", f"mask_{filename}")
+            colored_path = os.path.join(output_dir, "colored", f"colored_{filename}")
+            enhanced_path = os.path.join(output_dir, "enhanced", f"enhanced_{filename}")
             overlay_path = os.path.join(output_dir, "overlays", f"overlay_{filename}")
             
-            cv2.imwrite(mask_path, cv2.cvtColor(colored_mask, cv2.COLOR_RGB2BGR))
+            # Lưu mask gốc
+            cv2.imwrite(mask_path, pred_mask)
+            
+            # Lưu mask màu
+            cv2.imwrite(colored_path, cv2.cvtColor(colored_mask, cv2.COLOR_RGB2BGR))
+            
+            # Lưu mask tăng cường
+            cv2.imwrite(enhanced_path, enhanced_mask)
+            
+            # Lưu overlay
             cv2.imwrite(overlay_path, cv2.cvtColor(overlay, cv2.COLOR_RGB2BGR))
             
             # Lưu kết quả
@@ -424,16 +474,35 @@ def main():
         
         # Dự đoán trên một ảnh
         try:
-            img, pred_mask, colored_mask, overlay, class_areas = predict_segmentation(
+            img, pred_mask, colored_mask, enhanced_mask, overlay, class_areas = predict_segmentation(
                 model, args.input, img_size=img_size
             )
             
+            # Tạo thư mục đầu ra
+            if args.output:
+                os.makedirs(args.output, exist_ok=True)
+                os.makedirs(os.path.join(args.output, "masks"), exist_ok=True)
+                os.makedirs(os.path.join(args.output, "colored"), exist_ok=True)
+                os.makedirs(os.path.join(args.output, "enhanced"), exist_ok=True)
+                os.makedirs(os.path.join(args.output, "overlays"), exist_ok=True)
+                
+                # Lưu kết quả
+                filename = os.path.basename(args.input)
+                cv2.imwrite(os.path.join(args.output, "masks", f"mask_{filename}"), pred_mask)
+                cv2.imwrite(os.path.join(args.output, "colored", f"colored_{filename}"), 
+                           cv2.cvtColor(colored_mask, cv2.COLOR_RGB2BGR))
+                cv2.imwrite(os.path.join(args.output, "enhanced", f"enhanced_{filename}"), enhanced_mask)
+                cv2.imwrite(os.path.join(args.output, "overlays", f"overlay_{filename}"), 
+                           cv2.cvtColor(overlay, cv2.COLOR_RGB2BGR))
+            
             # Hiển thị kết quả
-            display_results(img, pred_mask, colored_mask, overlay, class_areas, 
+            display_results(img, pred_mask, colored_mask, enhanced_mask, overlay, class_areas, 
                            args.output, os.path.basename(args.input))
         
         except Exception as e:
             print(f"Lỗi khi dự đoán: {e}")
+            import traceback
+            traceback.print_exc()
     
     elif args.mode == 'batch':
         # Kiểm tra thư mục đầu vào
@@ -478,7 +547,7 @@ def main():
         os.makedirs(args.output, exist_ok=True)
         result_path = os.path.join(args.output, "evaluation_results.txt")
         
-        with open(result_path, 'w') as f:
+        with open(result_path, 'w', encoding='utf-8') as f:
             f.write("Kết quả đánh giá trung bình:\n")
             f.write(f"Mean IoU: {avg_metrics['mean_iou']:.4f}\n")
             f.write(f"Mean Dice: {avg_metrics['mean_dice']:.4f}\n")
