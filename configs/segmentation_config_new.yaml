@@ -18,9 +18,9 @@ model:
 
 training:
   batch_size: 8
-  epochs: 50
+  epochs: 150
   learning_rate: 0.0001
-  early_stopping_patience: 10
+  early_stopping_patience: 20
   reduce_lr_patience: 5
   use_augmentation: true 
   loss: "categorical_crossentropy"
